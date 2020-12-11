@@ -1,0 +1,226 @@
+#include <iostream> 
+#include <math.h> 
+ 
+using namespace std; 
+typedef struct  WAV_HEADER{ 
+    char                RIFF[4];        // RIFF Header      Magic header 
+    unsigned int        ChunkSize;      // RIFF Chunk Size 
+    char                WAVE[4];        // WAVE Header 
+    char                fmt[4];         // FMT header 
+    unsigned int       Subchunk1Size;  // Size of the fmt chunk 
+    unsigned short      AudioWAVE;    // Audio WAVE 1=PCM,6=mulaw,7=alaw, 257=IBM Mu-Law, 258=IBM A-Law, 259=ADPCM 
+    unsigned short      NumOfChan;      // Number of channels 1=Mono 2=Sterio 
+    unsigned int       SamplesPerSec;  // Sampling Frequency in Hz 
+    unsigned int       bytesPerSec;    // bytes per second 
+    unsigned short      blockAlign;     // 2=16-bit mono, 4=16-bit stereo 
+    unsigned short      bitsPerSample;  // Number of bits per sample 
+    char                Subchunk2ID[4]; // "data"  string 
+    unsigned int       Subchunk2Size;  // Sampled data length 
+}wav_hdr; 
+unsigned int NOD(unsigned int n1, unsigned int n2) 
+{ 
+  unsigned int div; 
+  if (n1 == n2)  return n1; 
+  unsigned int d = 0; 
+    if (n1 < n2) 
+    { 
+      d = n2 - n1;  div = NOD(n1, d); 
+    } 
+    else 
+    { 
+      d = n1 - n2; div = NOD(n2, d); 
+    } 
+  return div; 
+} 
+// Наименьшее общее кратное 
+unsigned int NOK(unsigned int n1, unsigned int n2) 
+{ 
+  return n1*n2 / NOD(n1, n2); 
+} 
+ 
+void Filter (const double in[], double out[], int sizeIn,double normCoef) 
+{ 
+const int N = 20; //Длина фильтра 
+//long double pi = 3.14159265358979323846; 
+double pi = 3.14159; 
+double Fd = sizeIn; //Частота дискретизации входных данных 
+double Fs = 2200; //Частота полосы пропускания 
+ 
+ 
+ double H [N] = {0}; //Импульсная характеристика фильтра 
+ double H_id [N] = {0}; //Идеальная импульсная характеристика 
+ double W [N] = {0}; //Весовая функция 
+ 
+//Расчет импульсной характеристики фильтра 
+ double Fc = (Fs ) / (2* Fd); 
+ 
+ 
+for (int i=0;i<N;i++) 
+{ 
+if (i==0) H_id[i] = 2*pi*Fc; 
+else H_id[i] = sinl(2*pi*Fc*i )/(pi*i); 
+// весовая функция Блекмена 
+W [i] = 0.42 - 0.5 * cosl((2*pi*i) /( N-1)) + 0.08 * cosl((4*pi*i) /( N-1)); 
+H [i] = H_id[i] * W[i]; 
+} 
+ 
+//Нормировка импульсной характеристики 
+double SUM=0; 
+for (int i=0; i<N; i++) SUM +=H[i]; 
+for (int i=0; i<N; i++) H[i]/=SUM/normCoef; 
+ 
+//Фильтрация входных данных 
+for (int i=0; i<sizeIn; i++) 
+{ 
+out[i]=0.; 
+for (int j=0; j<N-1; j++) 
+if(i-j>=0) 
+out[i]+= H[j]*in[i-j]; 
+//cout << in[i] <<" "<< out[i]<< endl; 
+} 
+} 
+ 
+ 
+short *Input(unsigned int &SamplesPerSec,unsigned int &Subchunk2Size) 
+{ 
+     wav_hdr wavHeader; 
+     FILE *wavFile; 
+ 
+     int headerSize = sizeof(wav_hdr); 
+ 
+     wavFile = fopen ("/home/anatoly/DISKRET/in3.wav", "rb"); 
+     if (wavFile!=NULL) 
+           { 
+             cout << "File Open "; 
+           } 
+     size_t bytesRead = fread(&wavHeader,headerSize,1,wavFile); 
+     SamplesPerSec = wavHeader.SamplesPerSec; 
+     Subchunk2Size = wavHeader.Subchunk2Size; 
+     fseek(wavFile , 0 , SEEK_END); 
+     long lSize = ftell(wavFile); 
+     rewind (wavFile); 
+     short* bufferIn = new short[Subchunk2Size]; 
+     //bytesRead = fread(bufferIn, sizeof(unsigned short), Subchunk2Size, wavFile); 
+     size_t result = fread(bufferIn, 2, lSize, wavFile);       // считываем файл в буфер 
+ 
+     for (unsigned int i = 0; i < Subchunk2Size; i++) 
+     { 
+        //cout << bufferIn[i] << " " ; 
+ 
+     } 
+     fclose(wavFile); 
+     return bufferIn; 
+} 
+ 
+void Output( short *data,unsigned int outSize,unsigned int sampleRate) 
+{ 
+    FILE *f1; 
+    wav_hdr wavHeader; 
+    unsigned short frameSize = 2; 
+                wavHeader.RIFF[0] = 'R'; 
+                wavHeader.RIFF[1] = 'I'; 
+                wavHeader.RIFF[2] = 'F'; 
+                wavHeader.RIFF[3] = 'F'; 
+                wavHeader.ChunkSize = (36 + outSize); 
+                wavHeader.WAVE[0] = 'W'; 
+                wavHeader.WAVE[1] = 'A'; 
+                wavHeader.WAVE[2] = 'V'; 
+                wavHeader.WAVE[3] = 'E'; 
+                wavHeader.fmt[0] = 'f'; 
+                wavHeader.fmt[1] = 'm'; 
+                wavHeader.fmt[2] = 't'; 
+                wavHeader.fmt[3] = ' '; 
+                wavHeader.Subchunk1Size = (16); 
+                wavHeader.AudioWAVE = ((short)1); 
+                wavHeader.NumOfChan = ((short)1); 
+                wavHeader.SamplesPerSec = sampleRate; 
+                wavHeader.bytesPerSec = (sampleRate * frameSize); 
+                wavHeader.blockAlign = frameSize; 
+                wavHeader.bitsPerSample = ((short)16); 
+                wavHeader.Subchunk2ID[0] = 'd'; 
+                wavHeader.Subchunk2ID[1] = 'a'; 
+                wavHeader.Subchunk2ID[2] = 't'; 
+                wavHeader.Subchunk2ID[3] = 'a'; 
+                wavHeader.Subchunk2Size = outSize; 
+    f1 = fopen("OutFile.wav", "w+b"); 
+    fwrite(&wavHeader, sizeof(wavHeader), 1, f1); 
+    for (unsigned int i = 0; i < outSize; i++) 
+    { 
+            fwrite(&data[i], sizeof( short),1, f1);//записываем байты элемента i массива data 
+    } 
+    fclose(f1); 
+ 
+} 
+ 
+int main() 
+{ 
+    //wav_hdr wavHeader; 
+int a =5; 
+    unsigned int f1 = 20000; // выходная ЧД 
+    unsigned int SamplesPerSec; // ЧД 
+ 
+ 
+    unsigned int Subchunk2Size; // байт данных 
+    short *bufferIn = Input(SamplesPerSec, Subchunk2Size); 
+    double coef = floor((float)f1 / (float)SamplesPerSec * 2 + 0.5) /2; 
+    unsigned int f = SamplesPerSec * coef; 
+    unsigned int outSize = ceil((float)Subchunk2Size/(float)SamplesPerSec*(float)f); // байт данных на Вых. 
+ 
+//    short unsigned int bytesPerSample = wavHeader.bitsPerSample / 8;      //Number     of bytes per sample 
+  //         long unsigned int numSamples = wavHeader.ChunkSize / bytesPerSample; //How many samples are in the wav file? 
+ 
+           const long unsigned int BUFFER_SIZE = NOK(SamplesPerSec,f); 
+ 
+           double *bufferOut = new double[BUFFER_SIZE](); //мини-буффер с UpSamp 
+           double *bufferFiltered = new double[BUFFER_SIZE](); //мини-буффер фильтрованный 
+            short *filteredData = new  short[outSize](); // выходной буффер 
+          // float numOfBuffers = ceil(Subchunk2Size/BUFFER_SIZE); 
+    long unsigned int smallStep = BUFFER_SIZE /SamplesPerSec ; 
+    long unsigned int bigStep = BUFFER_SIZE / f ; 
+    unsigned short countBuffer = ceil(Subchunk2Size / 2 / SamplesPerSec); 
+    double normCoef = BUFFER_SIZE / SamplesPerSec* 0.7; 
+   for (unsigned short i = 0; i < countBuffer; i++) // весь размер / кол-во буфферов 
+   { 
+       for (unsigned k = 0; k < BUFFER_SIZE; k++) // UpSamp 
+       { 
+           if ( k % smallStep == 0) 
+           { 
+               bufferOut[k] = bufferIn[ k / smallStep + i * BUFFER_SIZE / smallStep ]; 
+           //bufferOut[BUFFER_SIZE/SamplesPerSec * k ] = bufferIn[k + i * BUFFER_SIZE];// каждому второму присвоить 
+           // cout <<"("<< bufferOut[k] << ")" ; 
+           } 
+           else 
+           { 
+               bufferOut[k] = 0; 
+           } 
+           //if (k == 79990){a=4;} 
+         //bufferOut[k] =  bufferIn[ k  + i * BUFFER_SIZE ]; 
+        //cout << bufferOut[k] << " " ; 
+       } 
+ 
+ 
+         Filter(bufferOut, bufferFiltered, BUFFER_SIZE, normCoef); // фильтрация 
+         for (unsigned m = 0; m < BUFFER_SIZE; m++) // DownSamp 
+         { 
+             if ( m % bigStep == 0){} 
+             filteredData[m / bigStep + i * BUFFER_SIZE / bigStep] = bufferFiltered[m]; 
+             //filteredData[m / bigStep + i * BUFFER_SIZE / bigStep] = bufferOut[m]; 
+             //filteredData[m / bigStep + i * BUFFER_SIZE / smallStep] = bufferFiltered[m]; 
+             //cout << bufferFiltered[m] << " " ; 
+         } 
+       // memset(bufferOut, 0, 12); 
+        //memset(bufferFiltered, 0, sizeof(bufferFiltered)); 
+   } 
+ 
+    Output(filteredData,outSize,f); 
+ 
+ 
+ 
+           bufferIn = nullptr; 
+           delete [] bufferIn; 
+ 
+ 
+ 
+ 
+    return 0; 
+} 
